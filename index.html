@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebSocket Chat</title>
+  <style>
+    :root {
+      --line-color: #aeacff;
+      --primary-color: #5f5cd9;
+      --hover-color: #4847a8;
+      --border-radius: 8px;
+      --spacing: 1em;
+    }
+
+    #systemMessage {
+      background: pink;
+      border-radius: var(--border-radius);
+      padding: .25rem .75rem;
+    }
+
+    h3 {
+      font-size: 18px;
+      margin: 0;
+    }
+    p {
+      margin: 0;
+      color: #766b7d;
+      font-size: 14px;
+    }
+    
+    ul, li {
+      list-style: none;
+      list-style-type: disclosure-closed;
+      margin: 0;
+      padding: 0
+    }
+    
+    ul {
+      padding-block: 0;
+      padding-inline-start: var(--spacing);
+    }
+    
+    li {
+      line-height: 2em;
+    }
+    
+    button {
+      width: 100%;
+      padding: 0.5em;
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      font-size: 1em;
+      transition: background-color 0.3s;
+    }
+    
+    button:hover {
+      background-color: var(--hover-color);
+    }
+
+    input {
+      padding: 0.5em;
+      border: 1px solid var(--line-color);
+      border-radius: var(--border-radius);
+      font-size: 1em;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--spacing);
+    }
+    .sys {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: var(--spacing);
+    }
+
+    .inner-wrap {
+      background: #d1d0f8;
+      padding: var(--spacing);
+      border-radius: var(--border-radius);;
+    }
+
+    .list {
+      max-width: 960px;
+      display: flex;
+      justify-content: center;
+      gap: var(--spacing);
+      flex-direction: column;
+      border: 1px solid var(--line-color);
+      border-radius: var(--border-radius);
+      padding: var(--spacing) .75em;
+      margin-bottom: var(--spacing);
+    }
+    #onlineNinjasList {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      margin-top: var(--spacing);
+      div {
+        display: inline-block;
+        padding: .25em .75em;
+        border: 1px solid var(--line-color);
+        border-radius: var(--border-radius);;
+      }
+    }
+    #clientIdList {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5em;
+      div {
+        display: inline-block;
+        padding: .25em .5em;
+        border-radius: var(--border-radius);
+        border: 1px solid var(--line-color);
+      }
+    }
+    
+    .wrap {
+      display: flex;
+      justify-content: center;
+      gap: var(--spacing);
+      flex-direction: column;
+      border: 1px solid var(--line-color);
+      border-radius: var(--border-radius);
+      padding: var(--spacing) .75em;
+      margin-bottom: var(--spacing);
+
+      .inner-wrap &:last-child {
+        margin-bottom: 0;
+      }
+    }
+    .flex-row-wrap {
+      display: flex;
+      gap: .5em;
+      width: 100%;
+    }
+    .flex-column-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: .5em;
+      width: 100%;
+    }
+    .flex-1 {
+      flex: 1
+    }
+    .hide {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="sys">📢 : <span id="systemMessage"></span></div>
+  <div class="sys">我的 🆔: <span id="myId"></span></div>
+
+<div class="container">
+  <div class="inner-wrap">
+    <div class="wrap">
+      <div class="flex-column-wrap">
+        <input class="messageInput" type="text" placeholder="給全員的訊息輸入框" />
+        <button onclick="sendMessage()">給全部成員</button>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="flex-column-wrap">
+        <input class="messageInput targetMessageInput" type="text" placeholder="給個人的訊息輸入框" />
+        <div class="flex-row-wrap">
+          <input id="targetId" class="flex-1" type="text" placeholder="目標 ID" />
+          <button class="flex-1" onclick="sendToSpecificId()">傳訊給指定ID</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="inner-wrap">
+    <div class="list">
+      <h3>FROM: MESSAGE</h3>
+      <ul id="messageList"></ul>
+    </div>
+  </div>
+
+
+  <div class="inner-wrap">
+    <h3>在線忍者列表</h3>
+    <div id="onlineNinjasList" class="list"></div>
+  </div>
+
+  <div class="inner-wrap">
+    <div class="wrap">
+      <button onclick="getMyData()">給我資料，只有我會看到 🤭</button>
+      <p>向後端請求資料，只會回傳給請求的使用者，其他人不會收到</p>
+      <div id="myData"></div>
+    </div>
+  </div>
+
+</div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.js"></script>
+  <script>
+    // 連接到 WebSocket 服務
+    const socket = io('http://localhost:81', { transports: ['websocket'] });
+
+    // 儲存客戶端 ID 的變數
+    let clientId = '';
+
+
+    // socket.on(eventName, callback) 是用來監聽特定事件的方法
+    // 客戶端與服務端的 WebSocket 連線建立完成時，socket.io 會自動觸發 'connect' 事件，然後執行回呼函數（callback）中的程式碼。
+    // 監聽連線成功事件，並取得 socket.id
+    socket.on('connect', () => {
+      console.log('🉑--- 連線成功 ---🉑');
+      clientId = socket.id; // 取得客戶端 ID
+      document.getElementById('myId').textContent = clientId; // 顯示客戶端 ID
+    });
+
+    // 更新列息列表
+    socket.on('message', (msg) => {
+      const li = document.createElement('li');
+      li.textContent = `${clientId} 💬： ${msg}`;
+      document.getElementById('messageList').appendChild(li);
+    });
+
+    // 私訊
+    socket.on('privateMessage', (msg) => {
+      const li = document.createElement('li');
+      li.textContent = `${msg}`;
+      document.getElementById('messageList').appendChild(li);
+    });
+
+    // 錯誤訊息
+    socket.on('errorMessage', (msg) => {
+      const li = document.createElement('li');
+      li.textContent = `錯誤 ⚠️: ${msg}`;
+      li.style.color = 'red';
+      document.getElementById('messageList').appendChild(li);
+    });
+
+    // 監聽服務端(ninjas.service create)發來的 'ninjaMessage' 事件
+    socket.on('sysMessage', (msg) => {
+      console.log('---- sysMessage 📢 ----')
+      const systemMessage = document.getElementById('systemMessage');
+      systemMessage.textContent = `${msg}`;
+    })
+
+
+
+
+
+    // 取得所有連線的客戶端 ID
+    function getAllIds() {
+      socket.emit('getAllClientIds');
+    }
+    // 接收後端傳回來的 id 資訊
+    socket.on('clientIds', (ids) => {
+      console.log('收到所有客戶端 ID:', ids);
+      const clientIdList = document.getElementById('clientIdList');
+      clientIdList.innerHTML = ''; // 清空舊資料
+      clientIdList.classList.remove('hide'); // 顯示下拉選單
+      ids.forEach(id => {
+        const eachId = document.createElement('div');
+        eachId.textContent = id;
+        clientIdList.appendChild(eachId);
+      });
+    });
+
+
+
+
+
+
+
+    function sendMessage() {
+      const message = document.querySelector('.messageInput').value;
+      // socket.emit('xxxx', payload)，xxxx 是監聽 chat.gateway中，@SubscribeMessage('xxxx') 中的事件
+      socket.emit('sendMessage', message);
+      setTimeout(() => {
+        resetMessageInput();
+      }, 1000);
+    }
+
+    // 新增方法：發送訊息給特定 ID 的客戶端
+    function sendToSpecificId() {
+      const message = document.querySelector('.targetMessageInput').value;
+      const targetId = document.getElementById('targetId').value;
+      socket.emit('sendToSpecificId', { targetId, message });
+      setTimeout(() => {
+        resetMessageInput();
+      }, 1000);
+    }
+
+    // 向後端請求資料，只會回傳給請求的使用者
+    function getMyData() {
+      socket.emit('getMyData', { clientId });
+    }
+    socket.on('myData', (data) => {
+      console.log('\x1b[33m%s\x1b[0m', '=== 只傳給我自己會顯示的資料 ===', data);
+      const myDataWrap = document.querySelector('#myData');
+      // 清空現有內容
+      myDataWrap.innerHTML = '';
+      data.forEach((item) => {
+        const singleItem = document.createElement('div');
+        singleItem.textContent = `${item.id}. ${item.title}`;
+        singleItem.style.padding = '8px';
+        singleItem.style.margin = '4px 0';
+        singleItem.style.borderBottom = '1px solid #8481d9';
+        myDataWrap.appendChild(singleItem);
+      });
+    });
+
+    // 清空輸入框的內容
+    function resetMessageInput() {
+      document.querySelectorAll('.messageInput').forEach(input => input.value = '');
+    }
+
+    // 監聽忍者創建事件
+    socket.on('ninjaCreated', (data) => {
+      console.log('忍者創建成功:', data);
+    });
+
+    // 監聽在線忍者資料
+    socket.on('onlineNinjas', (data) => {
+      console.log('在線忍者資料:', data);
+      const onlineNinjasList = document.querySelector('#onlineNinjasList');
+      onlineNinjasList.innerHTML = ''; // 清空現有內容
+      
+      data.forEach((ninja) => {
+        const ninjaItem = document.createElement('div');
+        ninjaItem.textContent = `${ninja.id}`;
+        onlineNinjasList.appendChild(ninjaItem);
+      });
+    });
+
+  </script>
+</body>
+</html>
