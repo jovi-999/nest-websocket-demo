@@ -9,6 +9,8 @@
       --hover-color: #4847a8;
       --border-radius: 8px;
       --spacing: 1em;
+      --light-bg-color: #b1aff1;
+      --id-color: #4a4a4d;
     }
 
     #systemMessage {
@@ -76,11 +78,17 @@
       font-weight: bold;
       margin-bottom: var(--spacing);
     }
+    #myId {
+      font-weight: normal;
+    }
+    .id {
+      color: var(--id-color);
+    }
 
     .inner-wrap {
       background: #d1d0f8;
       padding: var(--spacing);
-      border-radius: var(--border-radius);;
+      border-radius: var(--border-radius);
     }
 
     .list {
@@ -149,11 +157,45 @@
     .hide {
       display: none;
     }
+    .user-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px;
+      margin: 4px 0;
+      border: 1px solid var(--line-color);
+      border-radius: var(--border-radius);
+      background: var(--light-bg-color);
+    }
+    .user-item_inner {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .user-item button {
+      width: auto;
+      padding: 4px 8px;
+      font-size: 14px;
+    }
+
+    .user-item span {
+      margin-right: 8px;
+      color: var(--id-color);
+    }
+    .mb-10 {
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
   <div class="sys">📢 : <span id="systemMessage"></span></div>
-  <div class="sys">我的 🆔: <span id="myId"></span></div>
+  <div class="sys">
+    我的:
+    <div id="myId">
+      <div class="id custom-id"></div>
+      <div class="id connect-id"></div>
+    </div>
+  </div>
 
 <div class="container">
   <div class="inner-wrap">
@@ -168,13 +210,12 @@
       <div class="flex-column-wrap">
         <input class="messageInput targetMessageInput" type="text" placeholder="給個人的訊息輸入框" />
         <div class="flex-row-wrap">
-          <input id="targetId" class="flex-1" type="text" placeholder="目標 ID" />
-          <button class="flex-1" onclick="sendToSpecificId()">傳訊給指定ID</button>
+          <input id="targetUserId" class="flex-1" type="text" placeholder="目標使用者 ID" />
+          <button class="flex-1" onclick="sendPrivateMessage()">傳訊給指定使用者</button>
         </div>
       </div>
     </div>
   </div>
-
 
   <div class="inner-wrap">
     <div class="list">
@@ -183,10 +224,9 @@
     </div>
   </div>
 
-
   <div class="inner-wrap">
-    <h3>在線忍者列表</h3>
-    <div id="onlineNinjasList" class="list"></div>
+    <h3 class="mb-10">在線使用者列表</h3>
+    <div id="onlineUsersList" class="list"></div>
   </div>
 
   <div class="inner-wrap">
@@ -201,33 +241,71 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.js"></script>
   <script>
-    // 連接到 WebSocket 服務
-    const socket = io('http://localhost:81', { transports: ['websocket'] });
-
-    // 儲存客戶端 ID 的變數
-    let clientId = '';
-
-
-    // socket.on(eventName, callback) 是用來監聽特定事件的方法
-    // 客戶端與服務端的 WebSocket 連線建立完成時，socket.io 會自動觸發 'connect' 事件，然後執行回呼函數（callback）中的程式碼。
-    // 監聽連線成功事件，並取得 socket.id
-    socket.on('connect', () => {
-      console.log('🉑--- 連線成功 ---🉑');
-      clientId = socket.id; // 取得客戶端 ID
-      document.getElementById('myId').textContent = clientId; // 顯示客戶端 ID
+    // 建立 WebSocket 連線
+    const socket = io('http://localhost:81', {
+      transports: ['websocket']
     });
 
-    // 更新列息列表
+    // 儲存使用者識別碼
+    let customId = localStorage.getItem('customId');
+    if (!customId) {
+      customId = `custom_${Date.now()}_${Math.random().toString(6).substr(2, 5)}`;
+      localStorage.setItem('customId', customId);
+    }
+
+    // 連線成功後，發送使用者連線事件
+    socket.on('connect', () => {
+      console.log('連線成功後，發送使用者連線事件');
+      // 發送使用者連線事件，包含使用者識別碼
+      socket.emit('userConnect', { 
+        customId: customId,
+        clientId: socket.id
+      });
+    });
+
+    // 接收連線確認
+    socket.on('connectionConfirmed', (data) => {
+      console.log('確認連線：connectionConfirmed:', data);
+      const myIdElement = document.getElementById('myId');
+      const customId = document.querySelector('.custom-id')
+      const connectId = document.querySelector('.connect-id')
+      if (myIdElement) {
+        customId.textContent = `自訂的 🆔 : ${data.customId}`;
+        connectId.textContent = `連線的 🆔 : ${data.clientId}`;
+        // myIdElement.textContent = `使用者ID: ${data.customId}, 連線ID: ${data.clientId}`;
+      }
+    });
+
+    // 接收在線使用者列表
+    socket.on('onlineUsers', (users) => {
+      console.log('Online users:', users);
+      const onlineUsersList = document.getElementById('onlineUsersList');
+      if (onlineUsersList) {
+        onlineUsersList.innerHTML = users.map(user => 
+          `<div class="user-item">
+            <div class="user-item_inner">
+              <span>${user.customId}</span>
+              <span>(${user.connectionCount} 個連線)</span>
+            </div>
+            <button onclick="selectUser('${user.customId}')">選擇</button>
+          </div>`
+        ).join('');
+      }
+    });
+
+    // 更新訊息列表
     socket.on('message', (msg) => {
       const li = document.createElement('li');
-      li.textContent = `${clientId} 💬： ${msg}`;
+      li.textContent = `${msg}`;
       document.getElementById('messageList').appendChild(li);
     });
 
-    // 私訊
-    socket.on('privateMessage', (msg) => {
+    // 接收私訊
+    socket.on('privateMessage', (data) => {
+      console.log('接收私訊:', data);
       const li = document.createElement('li');
-      li.textContent = `${msg}`;
+      li.textContent = `${data.from} 私訊你: ${data.message} (${new Date(data.timestamp).toLocaleTimeString()})`;
+      li.style.color = 'blue';
       document.getElementById('messageList').appendChild(li);
     });
 
@@ -239,62 +317,46 @@
       document.getElementById('messageList').appendChild(li);
     });
 
-    // 監聽服務端(ninjas.service create)發來的 'ninjaMessage' 事件
+    // 系統訊息
     socket.on('sysMessage', (msg) => {
       console.log('---- sysMessage 📢 ----')
       const systemMessage = document.getElementById('systemMessage');
-      systemMessage.textContent = `${msg}`;
-    })
-
-
-
-
-
-    // 取得所有連線的客戶端 ID
-    function getAllIds() {
-      socket.emit('getAllClientIds');
-    }
-    // 接收後端傳回來的 id 資訊
-    socket.on('clientIds', (ids) => {
-      console.log('收到所有客戶端 ID:', ids);
-      const clientIdList = document.getElementById('clientIdList');
-      clientIdList.innerHTML = ''; // 清空舊資料
-      clientIdList.classList.remove('hide'); // 顯示下拉選單
-      ids.forEach(id => {
-        const eachId = document.createElement('div');
-        eachId.textContent = id;
-        clientIdList.appendChild(eachId);
-      });
+      if (systemMessage) {
+        systemMessage.textContent = `${msg}`;
+      }
     });
 
-
-
-
-
-
-
+    // 發送訊息給所有人
     function sendMessage() {
       const message = document.querySelector('.messageInput').value;
-      // socket.emit('xxxx', payload)，xxxx 是監聽 chat.gateway中，@SubscribeMessage('xxxx') 中的事件
       socket.emit('sendMessage', message);
-      setTimeout(() => {
-        resetMessageInput();
-      }, 1000);
+      document.querySelector('.messageInput').value = '';
     }
 
-    // 新增方法：發送訊息給特定 ID 的客戶端
-    function sendToSpecificId() {
+    // 發送私訊
+    function sendPrivateMessage() {
+      const targetUserId = document.getElementById('targetUserId').value;
       const message = document.querySelector('.targetMessageInput').value;
-      const targetId = document.getElementById('targetId').value;
-      socket.emit('sendToSpecificId', { targetId, message });
-      setTimeout(() => {
-        resetMessageInput();
-      }, 1000);
+      
+      if (targetUserId && message) {
+        socket.emit('sendPrivateMessage', {
+          targetUserId: targetUserId,
+          message: message,
+          fromUserId: customId
+        });
+        document.querySelector('.targetMessageInput').value = '';
+        document.querySelector('#targetUserId').value = '';
+      }
+    }
+
+    // 選擇使用者
+    function selectUser(targetUserId) {
+      document.getElementById('targetUserId').value = targetUserId;
     }
 
     // 向後端請求資料，只會回傳給請求的使用者
     function getMyData() {
-      socket.emit('getMyData', { clientId });
+      socket.emit('getMyData', { clientId: customId });
     }
     socket.on('myData', (data) => {
       console.log('\x1b[33m%s\x1b[0m', '=== 只傳給我自己會顯示的資料 ===', data);
@@ -308,29 +370,6 @@
         singleItem.style.margin = '4px 0';
         singleItem.style.borderBottom = '1px solid #8481d9';
         myDataWrap.appendChild(singleItem);
-      });
-    });
-
-    // 清空輸入框的內容
-    function resetMessageInput() {
-      document.querySelectorAll('.messageInput').forEach(input => input.value = '');
-    }
-
-    // 監聽忍者創建事件
-    socket.on('ninjaCreated', (data) => {
-      console.log('忍者創建成功:', data);
-    });
-
-    // 監聽在線忍者資料
-    socket.on('onlineNinjas', (data) => {
-      console.log('在線忍者資料:', data);
-      const onlineNinjasList = document.querySelector('#onlineNinjasList');
-      onlineNinjasList.innerHTML = ''; // 清空現有內容
-      
-      data.forEach((ninja) => {
-        const ninjaItem = document.createElement('div');
-        ninjaItem.textContent = `${ninja.id}`;
-        onlineNinjasList.appendChild(ninjaItem);
       });
     });
 
