@@ -180,6 +180,4 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   //   // 更新在線忍者列表
   //   this.server.emit('onlineNinjas', this.ninjasService.getOnlineNinjas());
   // }
-
-
 }

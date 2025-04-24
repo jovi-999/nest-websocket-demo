@@ -4,6 +4,7 @@
   <title>WebSocket Chat</title>
   <style>
     :root {
+      --success-color: #90e46c;
       --line-color: #aeacff;
       --primary-color: #5f5cd9;
       --hover-color: #4847a8;
@@ -12,6 +13,26 @@
       --light-bg-color: #b1aff1;
       --id-color: #4a4a4d;
     }
+    body {
+      margin: 0;
+      padding: 0;
+    }
+    .outer {
+      padding: var(--spacing);
+    }
+    .connect-wrap {
+      padding: var(--spacing);
+      background: var(--success-color);
+      color: var(--id-color);
+    }
+    .reconnectBtn {
+      display: inline-block;
+      padding: 4px 8px;
+      width: 80px;
+      font-size: 14px;
+      margin-left: var(--spacing);
+    }
+
 
     #systemMessage {
       background: pink;
@@ -188,63 +209,86 @@
   </style>
 </head>
 <body>
-  <div class="sys">📢 : <span id="systemMessage"></span></div>
-  <div class="sys">
-    我的:
-    <div id="myId">
-      <div class="id custom-id"></div>
-      <div class="id connect-id"></div>
-    </div>
+  <div class="connect-wrap">連線狀態：
+    <span class="connect-status"></span>
   </div>
 
-<div class="container">
-  <div class="inner-wrap">
-    <div class="wrap">
-      <div class="flex-column-wrap">
-        <input class="messageInput" type="text" placeholder="給全員的訊息輸入框" />
-        <button onclick="sendMessage()">給全部成員</button>
+  <div class="outer">
+    <div class="sys"><span>📢</span> : <span id="systemMessage"></span></div>
+    <div class="sys">
+      我的:
+      <div id="myId">
+        <div class="id custom-id"></div>
+        <div class="id connect-id"></div>
+        <button class="reconnectBtn" onclick="reconnect()">重新連線</button>
       </div>
     </div>
 
-    <div class="wrap">
-      <div class="flex-column-wrap">
-        <input class="messageInput targetMessageInput" type="text" placeholder="給個人的訊息輸入框" />
-        <div class="flex-row-wrap">
-          <input id="targetUserId" class="flex-1" type="text" placeholder="目標使用者 ID" />
-          <button class="flex-1" onclick="sendPrivateMessage()">傳訊給指定使用者</button>
+    <div class="container">
+      <div class="inner-wrap">
+        <div class="wrap">
+          <div class="flex-column-wrap">
+            <input class="messageInput" type="text" placeholder="給全員的訊息輸入框" />
+            <button onclick="sendMessage()">給全部成員</button>
+          </div>
+        </div>
+
+        <div class="wrap">
+          <div class="flex-column-wrap">
+            <input class="messageInput targetMessageInput" type="text" placeholder="給個人的訊息輸入框" />
+            <div class="flex-row-wrap">
+              <input id="targetUserId" class="flex-1" type="text" placeholder="目標使用者 ID" />
+              <button class="flex-1" onclick="sendPrivateMessage()">傳訊給指定使用者</button>
+            </div>
+          </div>
         </div>
       </div>
+
+      <div class="inner-wrap">
+        <div class="list">
+          <h3>FROM: MESSAGE</h3>
+          <ul id="messageList"></ul>
+        </div>
+      </div>
+
+      <div class="inner-wrap">
+        <h3 class="mb-10">在線使用者列表</h3>
+        <div id="onlineUsersList" class="list"></div>
+      </div>
+
+      <div class="inner-wrap">
+        <div class="wrap">
+          <button onclick="getMyData()">給我資料，只有我會看到 🤭</button>
+          <p>向後端請求資料，只會回傳給請求的使用者，其他人不會收到</p>
+          <div id="myData"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 
-  <div class="inner-wrap">
-    <div class="list">
-      <h3>FROM: MESSAGE</h3>
-      <ul id="messageList"></ul>
-    </div>
-  </div>
-
-  <div class="inner-wrap">
-    <h3 class="mb-10">在線使用者列表</h3>
-    <div id="onlineUsersList" class="list"></div>
-  </div>
-
-  <div class="inner-wrap">
-    <div class="wrap">
-      <button onclick="getMyData()">給我資料，只有我會看到 🤭</button>
-      <p>向後端請求資料，只會回傳給請求的使用者，其他人不會收到</p>
-      <div id="myData"></div>
-    </div>
-  </div>
-
-</div>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.0/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.8.1/socket.io.min.js"></script>
   <script>
     // 建立 WebSocket 連線
     const socket = io('http://localhost:81', {
-      transports: ['websocket']
+      transports: ['websocket'],
+      reconnection: true, // 啟用自動重連（預設 true）
+      reconnectionAttempts: 2, // 最多重連次數
+      reconnectionDelay: 1000, // 初始延遲秒數
+      reconnectionDelayMax: 5000, // 最大延遲幾秒
+      randomizationFactor: 0.5, // Socket.IO 客戶端用於控制自動重連延遲的參數，用來在重連間隔中引入隨機性，避免所有客戶端同時重連導致伺服器過載。介於 0 到 1 的數字（預設 0.5）
     });
+
+    function logInfo(event, message, details = {}) {
+      const errorLog = {
+        timestamp: new Date().toISOString(),
+        event,
+        message,
+        customId: localStorage.getItem('customId'),
+        ...details,
+      };
+      console.info('🍄 LOGINFO:', errorLog);
+    }
 
     // 儲存使用者識別碼
     let customId = localStorage.getItem('customId');
@@ -253,9 +297,26 @@
       localStorage.setItem('customId', customId);
     }
 
+
+    //👆🏻手動觸發重新連線
+    function reconnect() {
+      console.log('\x1b[33m%s\x1b[0m', '============ 👇🏻 手動觸發重新連線 👇🏻 ============')
+      socket.connect();
+    }
+
+    // 連線狀態
+    const connectStatusWrap = document.querySelector('.connect-wrap')
+    const connectStatus = document.querySelector('.connect-status')
+
+    // 連線錯誤
+    socket.on('connect_error', (error) => {
+      logInfo('connect_error', `⛔ 連線錯誤: ${error.message}`, { error });
+    });
+
     // 連線成功後，發送使用者連線事件
     socket.on('connect', () => {
-      console.log('連線成功後，發送使用者連線事件');
+      console.log('\x1b[31m%s\x1b[0m', '--- ✅ 連線成功後，發送使用者連線事件 ---')
+      connectStatus.textContent = '✅ 連線成功'
       // 發送使用者連線事件，包含使用者識別碼
       socket.emit('userConnect', { 
         customId: customId,
@@ -263,9 +324,56 @@
       });
     });
 
+    // 連線斷線
+    socket.on('disconnect', (reason) => {
+      logInfo('disconnect', `⛔ 斷線原因: ${reason}`);
+      connectStatus.textContent = `⛔ 斷線了，斷線原因: ${reason}`;
+      if (reason === 'io server disconnect' || reason === 'ping timeout') {
+        console.log('伺服器可能停機，等待重連...');
+      }
+    });
+
+    socket.on('reconnect', (attempt) => {
+      logInfo('reconnect', `第 ${attempt} 次重連成功`);
+    });
+
+
+
+
+    let lastReconnectTime = 0;
+    const reconnectInterval = 60000; // 1 分鐘
+    const maxReconnectsPerMinute = 5;
+    let reconnectCount = 0;
+
+    socket.on('reconnect_attempt', (attempt) => {
+      console.log(`正在進行第 ${attempt} 次重連`);
+      logInfo('reconnect_attempt', `正在進行第 ${attempt} 次重連`);
+      const now = Date.now();
+      if (now - lastReconnectTime > reconnectInterval) {
+        reconnectCount = 0; // 重置計數
+        lastReconnectTime = now;
+      }
+      if (reconnectCount >= maxReconnectsPerMinute) {
+        socket.io.opts.reconnection = false; // 停止重連 (布林值，控制是否啟用自動重連，預設 true，表示斷線後會自動重連，alse 會禁用自動重連，之後的斷線不會觸發 reconnect_attempt)
+        // 修改 opts.reconnection 只影響當前連線實例，不會改變其他分頁。
+        logInfo('⚠️ reconnect_attempt', '一分鐘內重連次數過多，暫停重連');
+        socket.io.opts.reconnection = false;
+        document.getElementById('systemMessage').textContent = '重連次數過多，請稍後再試';
+        return;
+      }
+      reconnectCount++;
+    });
+
+
+    // 重新連線失敗
+    socket.on('reconnect_failed', () => {
+      logInfo('⚠️ reconnect_attempt', '重連失敗，已達上限，請手動重新整理');
+      document.getElementById('systemMessage').textContent = '無法連線，請重新整理頁面';
+    });
+
     // 接收連線確認
     socket.on('connectionConfirmed', (data) => {
-      console.log('確認連線：connectionConfirmed:', data);
+      logInfo('connectionConfirmed', '🆗 確認連線 connectionConfirmed', { data })
       const myIdElement = document.getElementById('myId');
       const customId = document.querySelector('.custom-id')
       const connectId = document.querySelector('.connect-id')
@@ -278,7 +386,7 @@
 
     // 接收在線使用者列表
     socket.on('onlineUsers', (users) => {
-      console.log('Online users:', users);
+      console.log('\x1b[44m%s\x1b[0m', '--- ONLINE USERS ---', users);
       const onlineUsersList = document.getElementById('onlineUsersList');
       if (onlineUsersList) {
         onlineUsersList.innerHTML = users.map(user => 
@@ -303,6 +411,7 @@
     // 接收私訊
     socket.on('privateMessage', (data) => {
       console.log('接收私訊:', data);
+      logInfo('privateMessage', '💬 接收私訊', data)
       const li = document.createElement('li');
       li.textContent = `${data.from} 私訊你: ${data.message} (${new Date(data.timestamp).toLocaleTimeString()})`;
       li.style.color = 'blue';
@@ -319,7 +428,7 @@
 
     // 系統訊息
     socket.on('sysMessage', (msg) => {
-      console.log('---- sysMessage 📢 ----')
+      logInfo('systemMessage', `📢 系統訊息: ${msg}`);
       const systemMessage = document.getElementById('systemMessage');
       if (systemMessage) {
         systemMessage.textContent = `${msg}`;
