@@ -329,7 +329,7 @@
       logInfo('disconnect', `⛔ 斷線原因: ${reason}`);
       connectStatus.textContent = `⛔ 斷線了，斷線原因: ${reason}`;
       if (reason === 'io server disconnect' || reason === 'ping timeout') {
-        console.log('伺服器可能停機，等待重連...');
+        console.log('\x1b[31m%s\x1b[0m', '--- 伺服器可能停機，等待重連... ---')
       }
     });
 
@@ -342,20 +342,21 @@
 
     let lastReconnectTime = 0;
     const reconnectInterval = 60000; // 1 分鐘
-    const maxReconnectsPerMinute = 5;
+    const maxReconnectsPerMinute = 3;
     let reconnectCount = 0;
 
     socket.on('reconnect_attempt', (attempt) => {
       console.log(`正在進行第 ${attempt} 次重連`);
-      logInfo('reconnect_attempt', `正在進行第 ${attempt} 次重連`);
+      logInfo('reconnect_attempt', `🍰🍰🍰正在進行第 ${attempt} 次重連`);
       const now = Date.now();
       if (now - lastReconnectTime > reconnectInterval) {
         reconnectCount = 0; // 重置計數
         lastReconnectTime = now;
       }
       if (reconnectCount >= maxReconnectsPerMinute) {
-        socket.io.opts.reconnection = false; // 停止重連 (布林值，控制是否啟用自動重連，預設 true，表示斷線後會自動重連，alse 會禁用自動重連，之後的斷線不會觸發 reconnect_attempt)
+        // 停止重連 (布林值，控制是否啟用自動重連，預設 true，表示斷線後會自動重連，false 會禁用自動重連，之後的斷線不會觸發 reconnect_attempt)
         // 修改 opts.reconnection 只影響當前連線實例，不會改變其他分頁。
+        socket.io.opts.reconnection = false; 
         logInfo('⚠️ reconnect_attempt', '一分鐘內重連次數過多，暫停重連');
         socket.io.opts.reconnection = false;
         document.getElementById('systemMessage').textContent = '重連次數過多，請稍後再試';

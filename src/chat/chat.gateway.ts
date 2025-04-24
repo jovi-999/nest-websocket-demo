@@ -23,14 +23,25 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // 儲存使用者和其所有的 socket 連線
   private userSockets: Map<string, Set<Socket>> = new Map();
 
+  private ipConnections: Map<string, number> = new Map();
+
   constructor(
     @Inject(forwardRef(() => NinjasService))
     private readonly ninjasService: NinjasService,
   ) {} // 注入 NinjasService
 
-  // 戶端（例如瀏覽器分頁）建立 WebSocket 連線時觸發，前端執行 const socket = io('http://localhost:81') 並成功連線時，自動觸發(Socket.IO 的內建行為)
+  // client端（例如瀏覽器分頁）建立 WebSocket 連線時觸發，前端執行 const socket = io('http://localhost:81') 並成功連線時，自動觸發(Socket.IO 的內建行為)
   handleConnection(client: Socket) {
-    this.connectedClients.set(client.id, client);
+    const ip = client.handshake.address;
+    const count = this.ipConnections.get(ip) || 0;
+    // 由 IP 限制連線
+    if (count >= 3) {
+      client.emit('errorMessage', '8️⃣8️⃣6️⃣ 連線數超過限制');
+      client.disconnect(true);
+      return;
+    }
+    this.ipConnections.set(ip, count + 1);
+    console.log('\x1b[33m%s\x1b[0m', `=== CLIENT ID ${client.id} 及 CONNECT IP ${ip} ===`)
   }
 
   // 處理前端發送的 'userConnect' 事件，用來註冊使用者的自定義 ID（customId）// 客戶端連線時觸發
@@ -64,6 +75,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // 客戶端斷線時觸發(自動觸發，當客戶端關閉分頁、網路中斷或手動斷開連線時，Socket.IO 的內建行為)
   handleDisconnect(client: Socket) {
+    const ip = client.handshake.address;
+    const count = this.ipConnections.get(ip) || 0;
+    this.ipConnections.set(ip, Math.max(0, count - 1));
+
     // 從所有使用者的 socket 集合中移除此連線
     for (const [customId, sockets] of this.userSockets.entries()) {
       if (sockets.has(client)) {
