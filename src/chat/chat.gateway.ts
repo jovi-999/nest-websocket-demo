@@ -26,6 +26,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private userSockets: Map<string, Set<Socket>> = new Map();
 
   private ipConnections: Map<string, number> = new Map();
+  private ipTimeoutMap: Map<string, NodeJS.Timeout> = new Map(); // 儲存 IP 對應的計時器
 
   constructor(
     @Inject(forwardRef(() => NinjasService))
@@ -81,6 +82,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    const time = 1000 * 60 * 1;
+    // 設置 ? 後自動斷開連線
+    const timeout = setTimeout(() => {
+      console.log(`連線超時，自動斷開 client from IP: ${client.id} due to timeout`);
+      client.emit('errorMessage', '連線超時，自動斷開');
+      client.disconnect(true);
+    }, time); // 1 小時
+
+    this.ipTimeoutMap.set(client.id, timeout); // 儲存計時器
     this.ipConnections.set(ip, count + 1);
   }
 
@@ -120,6 +130,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // const ip = client.handshake.address;
     const count = this.ipConnections.get(ip) || 0;
     this.ipConnections.set(ip, Math.max(0, count - 1));
+
+    // 清理計時器
+    const timeout = this.ipTimeoutMap.get(client.id);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.ipTimeoutMap.delete(client.id);
+      console.log(`清理計時器: ${client.id}`);
+    }
 
     // 從所有使用者的 socket 集合中移除此連線
     let removedCustomId: string | null = null;
