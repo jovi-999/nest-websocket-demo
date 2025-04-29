@@ -41,17 +41,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return ip;
   }
 
+  // 新增方法：模擬斷開所有連線
+  @SubscribeMessage('simulateDisconnect')
+  handleSimulateDisconnect(client: Socket): void {
+    console.log('Simulating server disconnect for all clients');
+    this.server.emit('sysMessage', '伺服器即將斷開所有連線');
+    // 斷開所有連線
+    this.server.sockets.sockets.forEach((socket) => {
+      socket.emit('errorMessage', '伺服器模擬斷線');
+      socket.disconnect(true);
+    });
+  }
+
   // client端（例如瀏覽器分頁）建立 WebSocket 連線時觸發，前端執行 const socket = io('http://localhost:81') 並成功連線時，自動觸發(Socket.IO 的內建行為)
   async handleConnection(client: Socket) {
-    const rawIp = client.handshake.address; 
+    const rawIp = client.handshake.address;
     const ip = this.normalizeIp(rawIp);
     const count = this.ipConnections.get(ip) || 0;
+    const limitCount = 3;
 
-    if (count >= 3) {
+    if (count >= limitCount) {
       // 先發送錯誤消息
       client.emit('errorMessage', '8️⃣8️⃣6️⃣ 連線數超過限制');
 
-      // 這裡開啟畫面會一直 reload，暫時先註解掉，不記錄錯誤
+      // TODO(目前測不出來): 這裡開啟畫面會一直 reload，暫時先註解掉，不記錄錯誤
       // try {
       //   this.logger.error('連線數超過限制', {
       //     clientId: client.id,

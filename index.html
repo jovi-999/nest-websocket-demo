@@ -25,12 +25,14 @@
       background: var(--success-color);
       color: var(--id-color);
     }
-    .reconnectBtn {
-      display: inline-block;
-      padding: 4px 8px;
-      width: 80px;
+    .btn {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding-inline: 8px;
+      width: 120px;
       font-size: 14px;
-      margin-left: var(--spacing);
+      margin-block: var(--spacing);
     }
 
 
@@ -220,7 +222,8 @@
       <div id="myId">
         <div class="id custom-id"></div>
         <div class="id connect-id"></div>
-        <button class="reconnectBtn" onclick="reconnect()">重新連線</button>
+        <button class="btn" onclick="reconnect()">🤝🏻 重新連線</button>
+        <button class="btn" onclick="simulateDisconnect()">模擬伺服器斷線</button>
       </div>
     </div>
 
@@ -273,11 +276,27 @@
     const socket = io('http://localhost:81', {
       transports: ['websocket'],
       reconnection: true, // 啟用自動重連（預設 true）
-      reconnectionAttempts: 2, // 最多重連次數
+      autoConnect: true,  // 添加這行
+      reconnectionAttempts: 6, // 最多重連次數 (consle 會顯示：websocket.js:119 WebSocket connection to 'ws://localhost:81/socket.io/?EIO=4&transport=websocket' failed:)
       reconnectionDelay: 1000, // 初始延遲秒數
       reconnectionDelayMax: 5000, // 最大延遲幾秒
       randomizationFactor: 0.5, // Socket.IO 客戶端用於控制自動重連延遲的參數，用來在重連間隔中引入隨機性，避免所有客戶端同時重連導致伺服器過載。介於 0 到 1 的數字（預設 0.5）
     });
+
+    // 捕獲全局錯誤
+    window.onerror = function (message, source, lineno, colno, error) {
+      console.error('Global error:', { message, source, lineno, colno, error });
+      return true; // 防止瀏覽器默認處理
+    };
+    window.onunhandledrejection = function (event) {
+      console.error('Unhandled promise rejection:', event.reason);
+    };
+    // 檢查頁面是否即將重載
+    window.onbeforeunload = function (event) {
+      console.log('------------- 頁面即將重載 -------------');
+      console.log('Socket connected:', socket.connected);
+      console.log('Socket disconnected:', socket.disconnected);
+    };
 
     function logInfo(event, message, details = {}) {
       const errorLog = {
@@ -297,21 +316,11 @@
       localStorage.setItem('customId', customId);
     }
 
-
-    //👆🏻手動觸發重新連線
-    function reconnect() {
-      console.log('\x1b[33m%s\x1b[0m', '============ 👇🏻 手動觸發重新連線 👇🏻 ============')
-      socket.connect();
-    }
-
-    // 連線狀態
     const connectStatusWrap = document.querySelector('.connect-wrap')
     const connectStatus = document.querySelector('.connect-status')
+    const sysMessageElement = document.getElementById('systemMessage')
+    const messageList = document.getElementById('messageList')
 
-    // 連線錯誤
-    socket.on('connect_error', (error) => {
-      logInfo('connect_error', `⛔ 連線錯誤: ${error.message}`, { error });
-    });
 
     // 連線成功後，發送使用者連線事件
     socket.on('connect', () => {
@@ -322,31 +331,53 @@
         customId: customId,
         clientId: socket.id
       });
+
+      // 清空系統訊息
+      sysMessageElement.textContent = '';
     });
 
     // 連線斷線
     socket.on('disconnect', (reason) => {
       logInfo('disconnect', `⛔ 斷線原因: ${reason}`);
-      connectStatus.textContent = `⛔ 斷線了，斷線原因: ${reason}`;
-      if (reason === 'io server disconnect' || reason === 'ping timeout') {
-        console.log('\x1b[31m%s\x1b[0m', '--- 伺服器可能停機，等待重連... ---')
+      if (reason === 'io server disconnect') {
+        // 服務器強制斷線，不自動重連
+        connectStatus.textContent = `⛔ 連線數超過限制，請關閉其他分頁`;
+        console.log('\x1b[31m%s\x1b[0m', '--- ⛔⛔⛔ 服務器斷開連接，不重連 ⛔⛔⛔ ---');
+      } else if (reason === 'io client disconnect') {
+        // 客戶端主動斷線，不自動重連
+        connectStatus.textContent = `⛔ 客戶端斷開連接，不重連`;
+        console.log('\x1b[31m%s\x1b[0m', '--- ⚠️⚠️⚠️ 客戶端斷開連接，不重連 ⚠️⚠️⚠️ ---');
+      } else {
+        // 其他原因（如網絡問題），socket.io-client 預設會自動重連
+        // 如果想阻止這種情況下的重連：
+        connectStatus.textContent = `⛔ 斷線了，斷線原因: ${reason}`;
+        // socket.disconnect(); // 先註解，讓 Socket.IO 自動重連
       }
     });
 
+    
+    // TODO(目前測不出來): 重試連線
     socket.on('reconnect', (attempt) => {
       logInfo('reconnect', `第 ${attempt} 次重連成功`);
+      connectStatus.textContent = '✅ 重連成功';
+    });
+
+    // 連線錯誤
+    socket.on('connect_error', (error) => {
+      logInfo('connect_error', `⛔ 連線錯誤: ${error.message}`, { error });
+      connectStatus.textContent = `⛔ 連線錯誤: ${error.message}`;
     });
 
 
 
-
+    // 重連邏輯
     let lastReconnectTime = 0;
     const reconnectInterval = 60000; // 1 分鐘
     const maxReconnectsPerMinute = 3;
     let reconnectCount = 0;
-
+    
+    // TODO(目前測不出來): 重連邏輯
     socket.on('reconnect_attempt', (attempt) => {
-      console.log(`正在進行第 ${attempt} 次重連`);
       logInfo('reconnect_attempt', `🍰🍰🍰正在進行第 ${attempt} 次重連`);
       const now = Date.now();
       if (now - lastReconnectTime > reconnectInterval) {
@@ -356,20 +387,18 @@
       if (reconnectCount >= maxReconnectsPerMinute) {
         // 停止重連 (布林值，控制是否啟用自動重連，預設 true，表示斷線後會自動重連，false 會禁用自動重連，之後的斷線不會觸發 reconnect_attempt)
         // 修改 opts.reconnection 只影響當前連線實例，不會改變其他分頁。
-        socket.io.opts.reconnection = false; 
         logInfo('⚠️ reconnect_attempt', '一分鐘內重連次數過多，暫停重連');
-        socket.io.opts.reconnection = false;
-        document.getElementById('systemMessage').textContent = '重連次數過多，請稍後再試';
+        // socket.io.opts.reconnection = false;
+        sysMessageElement.textContent = '重連次數過多，請稍後再試';
         return;
       }
       reconnectCount++;
     });
 
-
-    // 重新連線失敗
+    // TODO(目前測不出來): 重新連線失敗
     socket.on('reconnect_failed', () => {
       logInfo('⚠️ reconnect_attempt', '重連失敗，已達上限，請手動重新整理');
-      document.getElementById('systemMessage').textContent = '無法連線，請重新整理頁面';
+      sysMessageElement.textContent = '無法連線，請重新整理頁面';
     });
 
     // 接收連線確認
@@ -381,7 +410,6 @@
       if (myIdElement) {
         customId.textContent = `自訂的 🆔 : ${data.customId}`;
         connectId.textContent = `連線的 🆔 : ${data.clientId}`;
-        // myIdElement.textContent = `使用者ID: ${data.customId}, 連線ID: ${data.clientId}`;
       }
     });
 
@@ -390,15 +418,19 @@
       console.log('\x1b[44m%s\x1b[0m', '--- ONLINE USERS ---', users);
       const onlineUsersList = document.getElementById('onlineUsersList');
       if (onlineUsersList) {
-        onlineUsersList.innerHTML = users.map(user => 
-          `<div class="user-item">
-            <div class="user-item_inner">
-              <span>${user.customId}</span>
-              <span>(${user.connectionCount} 個連線)</span>
-            </div>
-            <button onclick="selectUser('${user.customId}')">選擇</button>
-          </div>`
-        ).join('');
+        if (users.length === 0) {
+          onlineUsersList.innerHTML = '<div>無在線使用者</div>';
+        } else {
+          onlineUsersList.innerHTML = users.map(user => 
+            `<div class="user-item">
+              <div class="user-item_inner">
+                <span>${user.customId}</span>
+                <span>(${user.connectionCount} 個連線)</span>
+              </div>
+              <button onclick="selectUser('${user.customId}')">選擇</button>
+            </div>`
+          ).join('');
+        }
       }
     });
 
@@ -406,7 +438,7 @@
     socket.on('message', (msg) => {
       const li = document.createElement('li');
       li.textContent = `${msg}`;
-      document.getElementById('messageList').appendChild(li);
+      messageList.appendChild(li);
     });
 
     // 接收私訊
@@ -416,15 +448,24 @@
       const li = document.createElement('li');
       li.textContent = `${data.from} 私訊你: ${data.message} (${new Date(data.timestamp).toLocaleTimeString()})`;
       li.style.color = 'blue';
-      document.getElementById('messageList').appendChild(li);
+      messageList.appendChild(li);
     });
 
     // 錯誤訊息
     socket.on('errorMessage', (msg) => {
+      console.log('錯誤訊息 ⚠️:', msg); // 添加日誌
       const li = document.createElement('li');
       li.textContent = `錯誤 ⚠️: ${msg}`;
       li.style.color = 'red';
-      document.getElementById('messageList').appendChild(li);
+      messageList.appendChild(li);
+      // 如果是連線數超過限制，禁用自動重連
+      if (msg === '8️⃣8️⃣6️⃣ 連線數超過限制') {
+        console.log('連線數超過限制，禁用自動重連'); // 添加日誌
+        // socket.io.opts.reconnection = false; // 禁用自動重連
+        // socket.disconnect(); // 主動斷開連線
+        socket.close(); // 完全關閉 Socket.IO 連線
+        sysMessageElement.textContent = '連線數超過限制，請關閉其他分頁後手動重新連線';
+      }
     });
 
     // 系統訊息
@@ -435,6 +476,32 @@
         systemMessage.textContent = `${msg}`;
       }
     });
+
+
+    socket.on('myData', (data) => {
+      console.log('\x1b[33m%s\x1b[0m', '=== 只傳給我自己會顯示的資料 ===', data);
+      const myDataWrap = document.querySelector('#myData');
+      // 清空現有內容
+      myDataWrap.innerHTML = '';
+      data.forEach((item) => {
+        const singleItem = document.createElement('div');
+        singleItem.textContent = `${item.id}. ${item.title}`;
+        singleItem.style.padding = '8px';
+        singleItem.style.margin = '4px 0';
+        singleItem.style.borderBottom = '1px solid #8481d9';
+        myDataWrap.appendChild(singleItem);
+      });
+    });
+
+
+    //👆🏻手動觸發重新連線
+    function reconnect() {
+      console.log('\x1b[33m%s\x1b[0m', '============ 👇🏻 手動觸發重新連線 👇🏻 ============')
+      socket.io.opts.reconnection = true; // 啟用自動重連
+      socket.connect();
+      messageList.innerHTML = ''; // 清空訊息列表
+    }
+
 
     // 發送訊息給所有人
     function sendMessage() {
@@ -468,20 +535,12 @@
     function getMyData() {
       socket.emit('getMyData', { clientId: customId });
     }
-    socket.on('myData', (data) => {
-      console.log('\x1b[33m%s\x1b[0m', '=== 只傳給我自己會顯示的資料 ===', data);
-      const myDataWrap = document.querySelector('#myData');
-      // 清空現有內容
-      myDataWrap.innerHTML = '';
-      data.forEach((item) => {
-        const singleItem = document.createElement('div');
-        singleItem.textContent = `${item.id}. ${item.title}`;
-        singleItem.style.padding = '8px';
-        singleItem.style.margin = '4px 0';
-        singleItem.style.borderBottom = '1px solid #8481d9';
-        myDataWrap.appendChild(singleItem);
-      });
-    });
+
+    // 模擬後端斷開所有連線，測試重連行為
+    function simulateDisconnect() {
+      console.log('Sending simulateDisconnect event to server');
+      socket.emit('simulateDisconnect');
+    }
 
   </script>
 </body>
