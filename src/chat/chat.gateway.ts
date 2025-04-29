@@ -11,6 +11,8 @@ import { Server, Socket } from 'socket.io';
 import { NinjasService } from '../ninjas/ninjas.service';
 import { Inject, forwardRef } from '@nestjs/common';
 
+import { LoggerService } from '../logger/service'; // 引入 LoggerService，記錄錯誤日誌
+
 // 定義 WebSocket 服務的入口，指定監聽端口和配置（如 CORS）
 // @WebSocketGateway(81, { cors: { origin: '*' } }) // 監聽端口 81，允許跨域
 @WebSocketGateway(81, { cors: { origin: '*' }, transports: ['websocket'] }) // 監聽端口 81，允許跨域 只使用 WebSocket
@@ -28,20 +30,45 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     @Inject(forwardRef(() => NinjasService))
     private readonly ninjasService: NinjasService,
-  ) {} // 注入 NinjasService
+    private readonly logger: LoggerService,
+  ) {}
+
+  // 統一 IP 地址格式
+  private normalizeIp(ip: string): string {
+    if (ip === '::1' || ip === '::ffff:127.0.0.1') {
+      return '127.0.0.1'; // 統一為 IPv4 格式
+    }
+    return ip;
+  }
 
   // client端（例如瀏覽器分頁）建立 WebSocket 連線時觸發，前端執行 const socket = io('http://localhost:81') 並成功連線時，自動觸發(Socket.IO 的內建行為)
-  handleConnection(client: Socket) {
-    const ip = client.handshake.address;
+  async handleConnection(client: Socket) {
+    const rawIp = client.handshake.address; 
+    const ip = this.normalizeIp(rawIp);
     const count = this.ipConnections.get(ip) || 0;
-    // 由 IP 限制連線
+
     if (count >= 3) {
+      // 先發送錯誤消息
       client.emit('errorMessage', '8️⃣8️⃣6️⃣ 連線數超過限制');
+
+      // 這裡開啟畫面會一直 reload，暫時先註解掉，不記錄錯誤
+      // try {
+      //   this.logger.error('連線數超過限制', {
+      //     clientId: client.id,
+      //     ip: ip,
+      //     connectionCount: count + 1,
+      //   });
+      // } catch (err) {
+      //   // 這裡至少要記錄到 console，避免錯誤被吞掉
+      //   console.error('Logger error:', err);
+      // }
+
+      // 立即斷開連線
       client.disconnect(true);
       return;
     }
+
     this.ipConnections.set(ip, count + 1);
-    console.log('\x1b[33m%s\x1b[0m', `=== CLIENT ID ${client.id} 及 CONNECT IP ${ip} ===`)
   }
 
   // 處理前端發送的 'userConnect' 事件，用來註冊使用者的自定義 ID（customId）// 客戶端連線時觸發
@@ -75,16 +102,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // 客戶端斷線時觸發(自動觸發，當客戶端關閉分頁、網路中斷或手動斷開連線時，Socket.IO 的內建行為)
   handleDisconnect(client: Socket) {
-    const ip = client.handshake.address;
+    const rawIp = client.handshake.address;
+    const ip = this.normalizeIp(rawIp); // 統一 IP 格式
+    // const ip = client.handshake.address;
     const count = this.ipConnections.get(ip) || 0;
     this.ipConnections.set(ip, Math.max(0, count - 1));
 
     // 從所有使用者的 socket 集合中移除此連線
+    let removedCustomId: string | null = null;
     for (const [customId, sockets] of this.userSockets.entries()) {
       if (sockets.has(client)) {
         sockets.delete(client);
         if (sockets.size === 0) {
           this.userSockets.delete(customId);
+          removedCustomId = customId;
         }
         break;
       }
@@ -92,13 +123,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.connectedClients.delete(client.id);
     this.broadcastOnlineUsers();
+
+    // 如果該使用者已無連線，廣播下線通知
+    if (removedCustomId) {
+      this.server.emit('sysMessage', `${removedCustomId} 下線了`);
+    }
   }
 
   // 處理前端發送的 'sendPrivateMessage' 事件，用來發送私訊給特定使用者
   @SubscribeMessage('sendPrivateMessage')
   handlePrivateMessage(
     client: Socket,
-    payload: { targetUserId: string; message: string; fromUserId: string }
+    payload: { targetUserId: string; message: string; fromUserId: string },
   ): void {
     const { targetUserId, message, fromUserId } = payload;
     const targetSockets = this.userSockets.get(targetUserId);
@@ -114,17 +150,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     } else {
       // 使用者不在線上
-      client.emit('errorMessage', `User ${targetUserId} is not online.`);
+      client.emit('errorMessage', `User ${targetUserId} 不在線上.`);
+      void this.logger.error(`User ${targetUserId} 不在線上.`, {
+        clientId: client.id,
+        targetUserId,
+        message,
+        timestamp: new Date().toISOString(),
+      });
     }
   }
 
   // 廣播在線使用者列表 (內部輔助函數，被其他方法呼叫)
   private broadcastOnlineUsers(): void {
-    // 從 userSockets 取出所有 customId（在線使用者的 ID）
-    const onlineUsers = Array.from(this.userSockets.keys()).map((customId) => ({
+    const onlineUsers = Array.from(this.userSockets.entries()).map(([customId, sockets]) => ({
       customId,
-      connectionCount: this.userSockets.get(customId)?.size || 0, // 使用者的連線數量(分頁數)
+      connectionCount: sockets.size, // 確保使用當前連線數
     }));
+    console.log('Broadcasting online users:', onlineUsers); // 添加日誌
     this.server.emit('onlineUsers', onlineUsers);
   }
 
@@ -166,7 +208,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ` ${client.id} 私訊你 💌  ${message}`,
       );
     } else {
-      client.emit('errorMessage', `Client with ID ${targetId} not found.`);
+      client.emit('errorMessage', `找不到 targetId ${targetId}.`);
+      void this.logger.error(`找不到 targetId ${targetId}`, {
+        clientId: client.id,
+        targetId,
+        message,
+        timestamp: new Date().toISOString(),
+      });
     }
   }
 
