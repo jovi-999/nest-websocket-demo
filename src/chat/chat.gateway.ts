@@ -61,7 +61,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const count = this.ipConnections.get(ip) || 0;
     const limitCount = 3;
 
-    if (count >= limitCount) {
+    if (count > limitCount) {
       // 先發送錯誤消息
       client.emit('errorMessage', '8️⃣8️⃣6️⃣ 連線數超過限制');
 
@@ -82,13 +82,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    const time = 1000 * 60 * 1;
+    const time = 1000 * 60 * 10; // 10 分鐘(1000 毫秒 × 60 秒 × 10 分鐘 = 600,000 毫秒)
     // 設置 ? 後自動斷開連線
     const timeout = setTimeout(() => {
       console.log(`連線超時，自動斷開 client from IP: ${client.id} due to timeout`);
       client.emit('errorMessage', '連線超時，自動斷開');
       client.disconnect(true);
-    }, time); // 1 小時
+    }, time);
 
     this.ipTimeoutMap.set(client.id, timeout); // 儲存計時器
     this.ipConnections.set(ip, count + 1);
